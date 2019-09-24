@@ -323,6 +323,10 @@ def main():
                         default = 20,
                         type = int, 
                         help = "Perform test scoring every -test_frequency- gradient steps")
+    parser.add_argument("--regularisation",
+                        action='store_true',
+                        help='Regularize the last layer instead of the output.')
+
 
     args = parser.parse_args()
 
@@ -455,28 +459,53 @@ def main():
         ### Unsupervised Loss
             batch = tuple(t.to(device) for t in batch)
             original_input, _, _, augmented_input,_,_ = batch
-            with torch.no_grad():
-                originals = model(original_input) / temperature
-                logits_original = F.log_softmax(model(original_input), dim = -1)
-                entropy = -torch.exp(logits_original)*logits_original
-                with train_summary_writer.as_default():
-                    tf.summary.scalar('entropy', entropy.sum(-1).mean(0).item(), step=global_step)
-                max_logits = torch.max(logits_original, dim =-1)[0]
+
+            if args.regularisation:
+                with torch.no_grad():
+                    originals = model(original_input) / temperature
+                    logits_original = F.log_softmax(model.bert(original_input)[1], dim = -1)
+                    entropy = -torch.exp(logits_original)*logits_original
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('entropy', entropy.sum(-1).mean(0).item(), step=global_step)
+                    max_logits = torch.max(logits_original, dim =-1)[0]
+                    if uda_threshold > 0:
+                        loss_unsup_mask = torch.where(max_logits.cpu() < np.log(uda_threshold), torch.tensor([1], dtype=torch.uint8), torch.tensor([0], dtype=torch.uint8))
+                        loss_unsup_mask.to(device)
+                        loss_unsup_mask = loss_unsup_mask.view(-1)
+                logits_augmented = F.log_softmax(model.bert(augmented_input)[1], dim = -1)
+                loss_unsup = kl_for_log_probs(logits_augmented,logits_original)
                 if uda_threshold > 0:
-                    loss_unsup_mask = torch.where(max_logits.cpu() < np.log(uda_threshold), torch.tensor([1], dtype=torch.uint8), torch.tensor([0], dtype=torch.uint8))
-                    loss_unsup_mask.to(device)
-                    loss_unsup_mask = loss_unsup_mask.view(-1)
-            logits_augmented = F.log_softmax(model(augmented_input), dim = -1)
-            loss_unsup = kl_for_log_probs(logits_augmented,logits_original)
-            if uda_threshold > 0:
-                loss_unsup[loss_unsup_mask] = 0
-                loss_unsup = loss_unsup[loss_unsup> 0.]
-            if loss_unsup.size(0) > 0:
-                loss_unsup_mean = loss_unsup.mean(-1)
-                with train_summary_writer.as_default():
-                    tf.summary.scalar('Number of elements unsup', loss_unsup.size(0),global_step)
-                    tf.summary.scalar('Loss_Unsup', loss_unsup_mean.item(), step=global_step)
-                loss_unsup_mean.backward()
+                    loss_unsup[loss_unsup_mask] = 0
+                    loss_unsup = loss_unsup[loss_unsup> 0.]
+                if loss_unsup.size(0) > 0:
+                    loss_unsup_mean = loss_unsup.mean(-1)
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('Number of elements unsup', loss_unsup.size(0),global_step)
+                        tf.summary.scalar('Loss_Unsup', loss_unsup_mean.item(), step=global_step)
+                    loss_unsup_mean.backward()
+            else:
+                with torch.no_grad():
+                    originals = model(original_input) / temperature
+                    logits_original = F.log_softmax(model(original_input), dim = -1)
+                    entropy = -torch.exp(logits_original)*logits_original
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('entropy', entropy.sum(-1).mean(0).item(), step=global_step)
+                    max_logits = torch.max(logits_original, dim =-1)[0]
+                    if uda_threshold > 0:
+                        loss_unsup_mask = torch.where(max_logits.cpu() < np.log(uda_threshold), torch.tensor([1], dtype=torch.uint8), torch.tensor([0], dtype=torch.uint8))
+                        loss_unsup_mask.to(device)
+                        loss_unsup_mask = loss_unsup_mask.view(-1)
+                logits_augmented = F.log_softmax(model(augmented_input), dim = -1)
+                loss_unsup = kl_for_log_probs(logits_augmented,logits_original)
+                if uda_threshold > 0:
+                    loss_unsup[loss_unsup_mask] = 0
+                    loss_unsup = loss_unsup[loss_unsup> 0.]
+                if loss_unsup.size(0) > 0:
+                    loss_unsup_mean = loss_unsup.mean(-1)
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('Number of elements unsup', loss_unsup.size(0),global_step)
+                        tf.summary.scalar('Loss_Unsup', loss_unsup_mean.item(), step=global_step)
+                    loss_unsup_mean.backward()
         ### Cleaning
             del loss_unsup 
             del loss_unsup_mean
