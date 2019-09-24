@@ -340,14 +340,14 @@ def main():
         df_test = p.load(open(args.sup_input+'/test_label.p','rb')) 
         supervised_data = prepare_supervised_data(df_train,max_seq_length=args.sequence_length)
         test_data = prepare_supervised_data(df_test,max_seq_length=args.sequence_length)
-        p.dump(unsupervised_data, open('unsupervised.p', 'wb'))
+        p.dump(unsupervised_data, open('data/unsupervised.p', 'wb'))
         p.dump(supervised_data, open(args.pickle_input_sup, 'wb'))
-        p.dump(test_data, open('test.p', 'wb'))
+        p.dump(test_data, open('data/test.p', 'wb'))
 
-    unsupervised_data = p.load(open('unsupervised.p', 'rb'))
+    unsupervised_data = p.load(open('data/unsupervised.p', 'rb'))
     unsupervised_data = list(np.array(unsupervised_data).reshape(-1))
-    supervised_data = p.load(open(args.pickle_input_sup,'rb'))   
-    test_data = p.load(open('test.p','rb')) 
+    supervised_data = p.load(open('data/'+args.pickle_input_sup,'rb'))   
+    test_data = p.load(open('data/test.p','rb')) 
 
     
     ### Recuperation sous tensors des données non supervisées

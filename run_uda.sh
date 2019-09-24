@@ -10,4 +10,4 @@
 rm -r logs
 mkdir -p logs
 tensorboard --host 0.0.0.0 --logdir=logs  &
-python run_uda.py --sequence_length 512 --multi_gpu  
+python run_uda.py --sequence_length 256 --multi_gpu  
