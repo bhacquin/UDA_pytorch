@@ -1,8 +1,4 @@
-
-
-'''
-    Author : Bastien van Delft
-'''
+#!/usr/bin/env python3
 import argparse
 import torch
 import torch.nn as nn
@@ -20,6 +16,7 @@ from torch.nn import CrossEntropyLoss
 import gc
 import tensorflow as tf
 from tensorflow import summary
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -274,7 +271,7 @@ def main():
                         type=int,
                         help='Batch size of the labelled data')
     parser.add_argument('--unsup_ratio',
-                        default = 3,
+                        default = 2,
                         type = int, 
                         help = 'To define the batch_size of unlabelled data, unsup_ratio * batch_size.')
     parser.add_argument("--gradient_accumulation",
@@ -300,7 +297,7 @@ def main():
                         type = int, 
                         help = "how many epochs to perform")                  
     parser.add_argument("--labelled_examples",
-                        default = 20000,
+                        default = 20,
                         type = int, 
                         help = "how many labelled examples to learn from")
     parser.add_argument("--temperature",
@@ -324,8 +321,9 @@ def main():
                         type = int, 
                         help = "Perform test scoring every -test_frequency- gradient steps")
     parser.add_argument("--regularisation",
-                        action='store_true',
-                        help='Regularize the last layer instead of the output.')
+                        default = -1,
+                        type = float, 
+                        help='Regularize the last layer instead of the output with a gamma parameter')
 
 
     args = parser.parse_args()
@@ -392,7 +390,7 @@ def main():
 
 
     ### Variables
-    unsup_train_batch_size = args.batch_size * args.unsup_ratio
+    unsup_train_batch_size = args.batch_size * args.unsup_ratio + 2
     sup_train_batch_size = args.batch_size
     labelled_examples = args.labelled_examples
     unsup_train_sampler = RandomSampler(unsupervised_dataset)
@@ -440,8 +438,8 @@ def main():
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
         'weight_decay': 0., 'lr' : lr,'max_grad_norm':-1},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.01, 'lr' : lr},
-        {'params' : model.module.bert.parameters(), 'weight_decay' : 0.01, 'lr' : lr_bert,'max_grad_norm':-1}
-        ]
+        {'params' : model.module.bert.encoder.parameters(), 'weight_decay' : 0.01, 'lr' : lr_bert,'max_grad_norm':-1},
+        {'params' : model.module.bert.pooler.parameters(),'weight_decay':0.01,'lr':lr}]
     #optimizer = BertAdam(optimizer_grouped_parameters)
     optimizer = torch.optim.Adam(optimizer_grouped_parameters)
     # Locally used variables
@@ -452,6 +450,7 @@ def main():
     loss_function = CrossEntropyLoss(reduction = 'none')
     optimizer.zero_grad()
     best = 0
+    MSE = nn.MSELoss(reduction = 'mean')
     ### TRAINING
     for epoch in range(epochs):                      
         for step, batch in tqdm(enumerate(unsup_train_dataloader)):
@@ -460,26 +459,38 @@ def main():
             batch = tuple(t.to(device) for t in batch)
             original_input, _, _, augmented_input,_,_ = batch
 
-            if args.regularisation:
+            if args.regularisation>0:
                 with torch.no_grad():
-                    originals = model(original_input) / temperature
-                    logits_original = F.log_softmax(model.bert(original_input)[1], dim = -1)
-                    entropy = -torch.exp(logits_original)*logits_original
+                    #originals = model(original_input) / temperature
+                    logits_original = model.module.bert(original_input)[1]
+                    #logits_original = F.log_softmax(originals, dim = -1)
+                    log_probas = F.log_softmax(model.module.classifier(logits_original),dim=-1)
+                    entropy = -torch.exp(log_probas)*log_probas
+                    
                     with train_summary_writer.as_default():
                         tf.summary.scalar('entropy', entropy.sum(-1).mean(0).item(), step=global_step)
-                    max_logits = torch.max(logits_original, dim =-1)[0]
-                    if uda_threshold > 0:
+                        tf.summary.histogram('proba',torch.exp(log_probas).cpu().data.numpy(), step = global_step)
+                        del entropy
+                        del log_probas
+                        gc.collect()
+                        torch.cuda.ipc_collect()
+                        torch.cuda.empty_cache()
+                    #max_logits = torch.max(logits_original, dim =-1)[0]
+                    if False:
                         loss_unsup_mask = torch.where(max_logits.cpu() < np.log(uda_threshold), torch.tensor([1], dtype=torch.uint8), torch.tensor([0], dtype=torch.uint8))
                         loss_unsup_mask.to(device)
                         loss_unsup_mask = loss_unsup_mask.view(-1)
-                logits_augmented = F.log_softmax(model.bert(augmented_input)[1], dim = -1)
-                loss_unsup = kl_for_log_probs(logits_augmented,logits_original)
-                if uda_threshold > 0:
+                #logits_augmented = F.log_softmax(model.module.classifier(model.module.bert(augmented_input)[1]), dim = -1)
+                logits_augmented = model.module.bert(augmented_input)[1]
+                loss_unsup = kl_for_log_probs(F.log_softmax(logits_augmented, dim=-1),F.log_softmax(logits_original/temperature, dim=-1)) * args.regularisation
+                #loss_unsup_mse = MSE(logits_augmented,logits_original)/3
+                if False:
                     loss_unsup[loss_unsup_mask] = 0
                     loss_unsup = loss_unsup[loss_unsup> 0.]
                 if loss_unsup.size(0) > 0:
                     loss_unsup_mean = loss_unsup.mean(-1)
                     with train_summary_writer.as_default():
+                        #tf.summary.scalar('Loss_MSE', loss_unsup_mse.item(), step=global_step)
                         tf.summary.scalar('Number of elements unsup', loss_unsup.size(0),global_step)
                         tf.summary.scalar('Loss_Unsup', loss_unsup_mean.item(), step=global_step)
                     loss_unsup_mean.backward()
@@ -507,6 +518,7 @@ def main():
                         tf.summary.scalar('Loss_Unsup', loss_unsup_mean.item(), step=global_step)
                     loss_unsup_mean.backward()
         ### Cleaning
+            #del entropy
             del loss_unsup 
             del loss_unsup_mean
             del logits_original 
@@ -539,7 +551,7 @@ def main():
                     if tsa:
                         tsa_start = 1. / num_labels
                         tsa_threshold = get_tsa_threshold(global_step = global_step,\
-                                                        num_train_step  = 3000, start = tsa_start,\
+                                                        num_train_step  = 1500, start = tsa_start,\
                                                         end=1.,schedule = 'linear', scale = 5)
                         loss_mask = torch.ones(loss_sup.size()).long()
                         probas = torch.gather(outputs, dim = -1, index = label_ids.unsqueeze(1)).cpu()
