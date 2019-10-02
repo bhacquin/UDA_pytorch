@@ -391,7 +391,8 @@ def main():
     if args.triplet_loss:
         unsupervised_data = p.load(open('data/unsupervised_triplet.p', 'rb'))
     else:
-        unsupervised_data = list(np.array(unsupervised_data).reshape(-1))
+        unsupervised_data = p.load(open('data/unsupervised.p', 'rb'))
+    unsupervised_data = list(np.array(unsupervised_data).reshape(-1))
     supervised_data = p.load(open('data/'+args.pickle_input_sup,'rb'))   
     test_data = p.load(open('data/test.p','rb')) 
 
