@@ -616,9 +616,11 @@ def main():
             torch.cuda.ipc_collect()
             
             if args.pretraining: ## To do reformatting
+                print("pretraining")
                 pass
             else:
             ### Supervised Loss
+                print('supervised loss')
                 for i , batch_sup in enumerate(sup_train_dataloader):
                     # if counter % (i+1) == 0 :
                     batch_sup = tuple(t.to(device) for t in batch_sup)
