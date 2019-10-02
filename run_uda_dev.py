@@ -49,8 +49,23 @@ def prepare_unsupervised_data(src, backtrad,max_seq_length=256):
         unsupervised_data.append(instance)
     print('Unsupervised Data prepared !')
     return unsupervised_data
-### Translate each sentence
 
+
+def prepare_unsupervised_data_triplet(src, backtrad,max_seq_length=256):
+    print('Preparing triplet data...')
+    unsupervised_data = []
+    tokenizer = BertTokenizer.from_pretrained('bert-large-cased') ## TO DO STOP HARDCODING
+
+    assert len(src) == len(backtrad)
+    for i in tqdm(range(len(src))):
+        j = np.random.randint(len(src))
+        while j == i:
+            j = np.random.randint(len(src))
+        instance = convert_examplesUDA_to_features([src[i],backtrad[i],src[j]], max_seq_length=max_seq_length, tokenizer=tokenizer,
+                                                   output_mode="UDA")
+        unsupervised_data.append(instance)
+    print('Unsupervised Data prepared !')
+    return unsupervised_data
 
 def convert_examplesUDA_to_features(examples, max_seq_length,
                                  tokenizer, output_mode,label_list = None):
@@ -59,10 +74,27 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
     features = []
     example = examples[0]
     example_2 = examples[1]
-
+    triplet = False
+    if len(examples)>2:
+        examples_3 = examples[2]
+        triplet =True
     tokens_a = tokenizer.tokenize(example)
 
     tokens_b = tokenizer.tokenize(example_2)
+
+    if triplet :
+        tokens_c =tokenizer.tokenize(example_3)
+        if len(tokens_c) > max_seq_length - 2:
+            tokens_c = tokens_c[:(max_seq_length - 2)]
+        tokens3 = ["[CLS]"] + tokens_c + ["[SEP]"]
+        segment_ids3 = [0] * len(tokens3)
+        input_ids3 = tokenizer.convert_tokens_to_ids(tokens3)
+        input_mask3 = [1] * len(input_ids3)
+        padding3 = [0] * (max_seq_length - len(input_ids3))
+        input_ids3 += padding3
+        input_mask3 += padding3
+        segment_ids3 += padding3
+
 
     if len(tokens_a) > max_seq_length - 2:
         tokens_a = tokens_a[:(max_seq_length - 2)]
@@ -111,10 +143,10 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
     else:
         raise KeyError(output_mode)
 
-
-    features.append(InputFeatures(input_ids=[input_ids1,input_ids2],
-                        input_mask=[input_mask1,input_mask2],
-                        segment_ids=[segment_ids1,segment_ids2],
+    if triplet: 
+        features.append(InputFeatures(input_ids=[input_ids1,input_ids2,input_ids3],
+                        input_mask=[input_mask1,input_mask2,input_mask3],
+                        segment_ids=[segment_ids1,segment_ids2,segment_ids3],
                         label_id=label_id))
     return features
 
@@ -236,6 +268,15 @@ def main():
     parser.add_argument("--preprocess_data",
                         action='store_true',
                         help="to activate the preprocessing of the data if not done yet")
+    parser.add_argument("--triplet_loss",
+                        action='store_true',
+                        help="to activate the use of triplet loss")
+    parser.add_argument("--regularisation_only",
+                        action='store_true',
+                        help="to deactivate the kl uda loss")
+    parser.add_argument("--pretraining",
+                        action = 'store_true',
+                        help = "To pretrain network with unsupervised loss")                   
     parser.add_argument("--sup_input",
                         default='data',
                         type=str,
@@ -263,9 +304,6 @@ def main():
                         default = True,
                         type = bool,
                         help = "Whether or not to use uda.")
-    parser.add_argument("--pretraining",
-                        action = 'store_true',
-                        help = "To pretrain network with unsupervised loss")
     parser.add_argument("--multi_gpu",
                         action = 'store_true',
                         help = 'to activate multi gpus')
@@ -336,17 +374,24 @@ def main():
             src = original.readlines()
         with open(args.unsup_input +'/paraphrase.txt') as paraphrase:
             tgt = paraphrase.readlines()
-        unsupervised_data = prepare_unsupervised_data(src, tgt,max_seq_length=args.sequence_length)
+        if args.triplet_loss:
+            unsupervised_data = prepare_unsupervised_data_triplet(src, tgt,max_seq_length=args.sequence_length)
+            p.dump(unsupervised_data, open('data/unsupervised_triplet.p', 'wb'))
+        else:
+            unsupervised_data = prepare_unsupervised_data(src, tgt,max_seq_length=args.sequence_length)
+            p.dump(unsupervised_data, open('data/unsupervised.p', 'wb'))
         df_train = p.load(open(args.sup_input+'/train_label.p','rb'))   
         df_test = p.load(open(args.sup_input+'/test_label.p','rb')) 
         supervised_data = prepare_supervised_data(df_train,max_seq_length=args.sequence_length)
         test_data = prepare_supervised_data(df_test,max_seq_length=args.sequence_length)
-        p.dump(unsupervised_data, open('data/unsupervised.p', 'wb'))
+        
         p.dump(supervised_data, open(args.pickle_input_sup, 'wb'))
         p.dump(test_data, open('data/test.p', 'wb'))
 
-    unsupervised_data = p.load(open('data/unsupervised.p', 'rb'))
-    unsupervised_data = list(np.array(unsupervised_data).reshape(-1))
+    if args.triplet_loss:
+        unsupervised_data = p.load(open('data/unsupervised_triplet.p', 'rb'))
+    else:
+        unsupervised_data = list(np.array(unsupervised_data).reshape(-1))
     supervised_data = p.load(open('data/'+args.pickle_input_sup,'rb'))   
     test_data = p.load(open('data/test.p','rb')) 
 
@@ -360,6 +405,11 @@ def main():
     augmented_input_mask = torch.tensor([f.input_mask[1] for f in unsupervised_data], dtype=torch.long)
     augmented_segment_ids = torch.tensor([f.segment_ids[1] for f in unsupervised_data], dtype=torch.long)
 
+    if args.triplet_loss:
+        triplet_input_ids = torch.tensor([f.input_ids[2] for f in unsupervised_data], dtype=torch.long)
+        triplet_input_mask = torch.tensor([f.input_mask[2] for f in unsupervised_data], dtype=torch.long)
+        triplet_segment_ids = torch.tensor([f.segment_ids[2] for f in unsupervised_data], dtype=torch.long)
+
     ### Recuperation sous tensors des données supervisées
     supervised_input_ids = torch.tensor([f.input_ids for f in supervised_data], dtype=torch.long)
     supervised_input_mask = torch.tensor([f.input_mask for f in supervised_data], dtype=torch.long)
@@ -372,7 +422,12 @@ def main():
     test_label_ids = torch.tensor([f.label_id for f in test_data], dtype=torch.long)
 
     ### Creation des datasets
-    unsupervised_dataset = TensorDataset(original_input_ids, original_input_mask, original_segment_ids,\
+    if args.triplet_loss:
+        unsupervised_dataset = TensorDataset(original_input_ids, original_input_mask, original_segment_ids,\
+                                    augmented_input_ids,augmented_input_mask,augmented_segment_ids,\
+                                    triplet_input_ids,triplet_input_mask,triplet_segment_ids)
+    else:
+        unsupervised_dataset = TensorDataset(original_input_ids, original_input_mask, original_segment_ids,\
                                     augmented_input_ids,augmented_input_mask,augmented_segment_ids)
 
     supervised_dataset = TensorDataset(supervised_input_ids,\
@@ -443,11 +498,12 @@ def main():
     # Locally used variables
     global_step = 0
     accuracy = 0
-    counter = 1
+    # counter = 1
     test_counter = 0
     loss_function = CrossEntropyLoss(reduction = 'none')
     optimizer.zero_grad()
     best = 0
+    scale_triplet = 0.01
     MSE = nn.MSELoss(reduction = 'mean')
     ### TRAINING
     for epoch in range(epochs):                      
@@ -455,8 +511,12 @@ def main():
             model.train()       
         ### Unsupervised Loss
             batch = tuple(t.to(device) for t in batch)
-            original_input, _, _, augmented_input,_,_ = batch
-
+            if args.triplet_loss:
+                original_input,_,_,augmented_input,_,_,triplet_input,_,_ =batch
+                triplet = True
+            else:
+                original_input, _, _, augmented_input,_,_ = batch
+            ### REGULARISATION LAST LAYER 
             if args.regularisation>0:
                 with torch.no_grad():
                     logits_original = model.module.bert(original_input)[1]
@@ -467,7 +527,6 @@ def main():
                         tf.summary.scalar('entropy', entropy.sum(-1).mean(0).item(), step=global_step)
                         tf.summary.histogram('proba',torch.exp(log_probas).cpu().data.numpy(), step = global_step)
 
-
                 ## CLEANING MEMORY
                 del entropy
                 gc.collect()
@@ -476,11 +535,18 @@ def main():
                 ## END OF CLEANING
 
                 logits_augmented = model.module.bert(augmented_input)[1]
-                log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented)/temperature, dim=-1)
+                if triplet:
+                    logits_triplet = model.module.bert(triplet_input)
+                    loss_triplet = - MSE(logits_triplet, logits_original) * scale_triplet
+                else :
+                    loss_triplet = torch.tensor([0])
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
-                loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
-
-                #
+                
+                if args.regularisation_only:
+                    loss_unsup_uda = torch.tensor([0])
+                else:
+                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented)/temperature, dim=-1)
+                    loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
 
                 if uda_threshold > 0:
                     max_logits = torch.max(torch.exp(log_probas), dim=-1)[0]
@@ -490,16 +556,20 @@ def main():
                     loss_unsup_mask.to(device)
                     loss_unsup_uda[loss_unsup_mask] = 0
                     loss_unsup_uda = loss_unsup_uda[loss_unsup > 0.]
-                if loss_unsup_uda.size(0) > 0:
-                    loss_unsup_mean = loss_unsup_uda.mean(-1) + loss_unsup_regu
+                if loss_unsup_uda.size(0) > 0 :
+                    loss_unsup_mean = loss_unsup_uda.mean(-1) + loss_unsup_regu + loss_triplet
                 else:
-                    loss_unsup_mean = loss_unsup_regu
+                    loss_unsup_mean = loss_unsup_regu + loss_triplet
+
+                
                 with train_summary_writer.as_default():
 
                     tf.summary.scalar('Number of elements unsup', loss_unsup_uda.size(0),global_step)
                     tf.summary.scalar('Loss_Unsup_uda', loss_unsup_uda.mean(-1).item(), step=global_step)
                     tf.summary.scalar('Loss_Unsup_regu', loss_unsup_regu.item(), step=global_step)
                 loss_unsup_mean.backward()
+
+
             else:
                 with torch.no_grad():
                     originals = model(original_input) / temperature
@@ -544,14 +614,15 @@ def main():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
             
-            if args.pretrained: ## To do reformatting
-                continue
-        ### Supervised Loss
-            for i , batch_sup in enumerate(sup_train_dataloader):
-                if counter % (i+1) == 0 :
+            if args.pretraining: ## To do reformatting
+                pass
+            else:
+            ### Supervised Loss
+                for i , batch_sup in enumerate(sup_train_dataloader):
+                    # if counter % (i+1) == 0 :
                     batch_sup = tuple(t.to(device) for t in batch_sup)
                     input_ids, input_mask, segment_ids, label_ids = batch_sup 
-                   # tf.summary.scalar('learning rate', np.max(optimizer.get_lr(), step=global_step)
+                # tf.summary.scalar('learning rate', np.max(optimizer.get_lr(), step=global_step)
                     logits = model(input_ids)
                     loss_sup = loss_function(logits.view(-1,2),label_ids.view(-1))
 
@@ -600,16 +671,16 @@ def main():
                         tf.summary.scalar('nb_elements_sup', nb_elements, global_step)
                         tf.summary.scalar('Post_loss', loss_sup.item(), step=global_step)
 
-            ### Cleaning
+                ### Cleaning
                     del loss_sup 
                     del logits
                     gc.collect()
                     torch.cuda.empty_cache()
                     torch.cuda.ipc_collect()
-                    counter += 1                
-                    if counter > labelled_examples +1 :
-                        counter = 1
-                    break
+                    # counter += 1                
+                    # if counter > labelled_examples +1 :
+                    #     counter = 1
+                    # break
                 else:
                     gc.collect()
                     torch.cuda.empty_cache()
@@ -621,35 +692,40 @@ def main():
                 torch.nn.utils.clip_grad_value_(model.parameters(),args.clip_grad)
                 optimizer.step()
                 optimizer.zero_grad()
-
-            ### Test set and Evaluation  every x gradient steps         
-            if (step+1) % 100  == 0:
-                loss = []
-                sentiment_test_acc = 0
-                for test_step, test_batch in enumerate(test_dataloader):
-                    test_batch = tuple(t.to(device) for t in test_batch)
-                    input_ids, input_mask, segment_ids, label_ids = test_batch
-                    with torch.no_grad():
-                        logits = model(input_ids)
-                        loss_test = loss_function(logits.view(-1,2),label_ids.view(-1)).mean(-1)
-                        with train_summary_writer.as_default():
-                            tf.summary.scalar('Test_loss_continuous', loss_test.item(), step=test_step+test_counter*len(test_dataloader))
-                        loss.append(loss_test.item())
-                        outputs = F.softmax(logits,dim=-1)
-                        sentiment_corrects = torch.sum(torch.max(outputs, -1)[1] == label_ids)                        
-                        sentiment_test_acc += sentiment_corrects.double()
-                        accuracy += sentiment_acc / input_ids.size(0)
-                sentiment_test_acc = sentiment_test_acc / len(test_dataloader)		  
-                with train_summary_writer.as_default():
-                    tf.summary.scalar('Test_score', sentiment_test_acc.item()/16, step=global_step)
-                    tf.summary.scalar('test_loss', np.array(loss).mean(), step=global_step)
-                    tf.summary.scalar('test_loss_std', np.array(loss).std(), step=global_step)
-                test_counter += 1
-                print('best_score',best)
-                if sentiment_test_acc.item()/16 > best :
+            if args.pretraining:
+                if (step+1) % 200  == 0:
                     model_to_save = model.module if hasattr(model, 'module') else model
-                    torch.save(model_to_save, "best_model_score.pt")
-                    best = sentiment_test_acc.item()/16
+                        torch.save(model_to_save, "model_pretrained_"+str(step)+".pt")
+                pass
+            else:
+            ### Test set and Evaluation  every x gradient steps         
+                if (step+1) % 100  == 0:
+                    loss = []
+                    sentiment_test_acc = 0
+                    for test_step, test_batch in enumerate(test_dataloader):
+                        test_batch = tuple(t.to(device) for t in test_batch)
+                        input_ids, input_mask, segment_ids, label_ids = test_batch
+                        with torch.no_grad():
+                            logits = model(input_ids)
+                            loss_test = loss_function(logits.view(-1,2),label_ids.view(-1)).mean(-1)
+                            with train_summary_writer.as_default():
+                                tf.summary.scalar('Test_loss_continuous', loss_test.item(), step=test_step+test_counter*len(test_dataloader))
+                            loss.append(loss_test.item())
+                            outputs = F.softmax(logits,dim=-1)
+                            sentiment_corrects = torch.sum(torch.max(outputs, -1)[1] == label_ids)                        
+                            sentiment_test_acc += sentiment_corrects.double()
+                            accuracy += sentiment_acc / input_ids.size(0)
+                    sentiment_test_acc = sentiment_test_acc / len(test_dataloader)		  
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('Test_score', sentiment_test_acc.item()/16, step=global_step)
+                        tf.summary.scalar('test_loss', np.array(loss).mean(), step=global_step)
+                        tf.summary.scalar('test_loss_std', np.array(loss).std(), step=global_step)
+                    test_counter += 1
+                    print('best_score',best)
+                    if sentiment_test_acc.item()/16 > best :
+                        model_to_save = model.module if hasattr(model, 'module') else model
+                        torch.save(model_to_save, "best_model_score.pt")
+                        best = sentiment_test_acc.item()/16
                
             ### Increase the global step tracker
             global_step += 1
