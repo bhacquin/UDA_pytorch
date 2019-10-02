@@ -695,7 +695,7 @@ def main():
             if args.pretraining:
                 if (step+1) % 200  == 0:
                     model_to_save = model.module if hasattr(model, 'module') else model
-                        torch.save(model_to_save, "model_pretrained_"+str(step)+".pt")
+                    torch.save(model_to_save, "model_pretrained_"+str(step)+".pt")
                 pass
             else:
             ### Test set and Evaluation  every x gradient steps         
