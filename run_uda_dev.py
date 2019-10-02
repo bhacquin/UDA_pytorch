@@ -76,7 +76,7 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
     example_2 = examples[1]
     triplet = False
     if len(examples)>2:
-        examples_3 = examples[2]
+        example_3 = examples[2]
         triplet =True
     tokens_a = tokenizer.tokenize(example)
 
