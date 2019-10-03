@@ -407,6 +407,7 @@ def main():
     augmented_segment_ids = torch.tensor([f.segment_ids[1] for f in unsupervised_data], dtype=torch.long)
 
     if args.triplet_loss:
+        print('triplet')
         triplet_input_ids = torch.tensor([f.input_ids[2] for f in unsupervised_data], dtype=torch.long)
         triplet_input_mask = torch.tensor([f.input_mask[2] for f in unsupervised_data], dtype=torch.long)
         triplet_segment_ids = torch.tensor([f.segment_ids[2] for f in unsupervised_data], dtype=torch.long)
@@ -537,8 +538,10 @@ def main():
 
                 logits_augmented = model.module.bert(augmented_input)[1]
                 if triplet:
-                    logits_triplet = model.module.bert(triplet_input)
-                    loss_triplet = - MSE(logits_triplet, logits_original) * scale_triplet
+                    logits_triplet = model.module.bert(triplet_input)[1]
+                    loss_triplet = - MSE(logits_triplet, logits_original) 
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('loss_triplet', loss_triplet.item(), step=global_step)
                 else :
                     loss_triplet = torch.tensor([0])
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
@@ -556,7 +559,7 @@ def main():
                                                   torch.tensor([0], dtype=torch.uint8)).view(-1)
                     loss_unsup_mask.to(device)
                     loss_unsup_uda[loss_unsup_mask] = 0
-                    loss_unsup_uda = loss_unsup_uda[loss_unsup > 0.]
+                    loss_unsup_uda = loss_unsup_uda[loss_unsup_uda > 0.]
                 if loss_unsup_uda.size(0) > 0 :
                     loss_unsup_mean = loss_unsup_uda.mean(-1) + loss_unsup_regu + loss_triplet
                 else:
