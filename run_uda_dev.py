@@ -522,7 +522,7 @@ def main():
             if args.regularisation>0:
                 with torch.no_grad():
                     logits_original = model.module.bert(original_input)[1]
-                    log_probas = F.log_softmax(model.module.classifier(logits_original),dim=-1)
+                    log_probas = F.log_softmax(model.module.classifier(logits_original)/temperature,dim=-1)
                     entropy = -torch.exp(log_probas)*log_probas
                     
                     with train_summary_writer.as_default():
@@ -549,7 +549,7 @@ def main():
                 if args.regularisation_only:
                     loss_unsup_uda = torch.tensor([0])
                 else:
-                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented)/temperature, dim=-1)
+                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented), dim=-1)
                     loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
 
                 if uda_threshold > 0:
