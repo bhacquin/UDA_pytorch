@@ -32,10 +32,10 @@ class InputFeatures(object):
 
 ### Prepare Unsupervised Data
 
-def prepare_unsupervised_data(src, backtrad,max_seq_length=256):
+def prepare_unsupervised_data(src, backtrad,max_seq_length=256, bert_model = 'bert-large-uncased'):
     print('Preparing Unsupervised Data ...')
     unsupervised_data = []
-    tokenizer = BertTokenizer.from_pretrained('bert-large-uncased')
+    tokenizer = BertTokenizer.from_pretrained(bert_model = 'bert-large-uncased')
 #     with open(path_data+'/original/'+filename) as f:
 #             text_original = f.readlines()
 
@@ -121,9 +121,9 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
 
 ### Prepare Labelled Data
 
-def prepare_supervised_data(src,max_seq_length=256):
+def prepare_supervised_data(src,max_seq_length=256,bert_model = 'bert-large-uncased'):
     print('Preparing supervised data...')
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = BertTokenizer.from_pretrained(bert_model)
 #     with open(path_data+'/original/'+filename) as f:
 #             text_original = f.readlines()
 
@@ -241,6 +241,11 @@ def main():
                         type=str,
                         required=False,
                         help="The input labelled pickle file")
+    parser.add_argument("--bert_model",
+                        default='bert-large-uncased',
+                        type=str,
+                        required=False,
+                        help="The name of the pretrained bert model to use")
     parser.add_argument("--pickle_input_sup",
                         default="supervised.p",
                         required = False, 
@@ -337,11 +342,11 @@ def main():
             src = original.readlines()
         with open(args.unsup_input +'/paraphrase.txt') as paraphrase:
             tgt = paraphrase.readlines()
-        unsupervised_data = prepare_unsupervised_data(src, tgt,max_seq_length=args.sequence_length)
+        unsupervised_data = prepare_unsupervised_data(src, tgt,max_seq_length=args.sequence_length, bert_model = args.bert_model)
         df_train = p.load(open(args.sup_input+'/train_label.p','rb'))   
         df_test = p.load(open(args.sup_input+'/test_label.p','rb')) 
-        supervised_data = prepare_supervised_data(df_train,max_seq_length=args.sequence_length)
-        test_data = prepare_supervised_data(df_test,max_seq_length=args.sequence_length)
+        supervised_data = prepare_supervised_data(df_train,max_seq_length=args.sequence_length, bert_model = args.bert_model)
+        test_data = prepare_supervised_data(df_test,max_seq_length=args.sequence_length, bert_model = args.bert_model)
         p.dump(unsupervised_data, open('data/unsupervised.p', 'wb'))
         p.dump(supervised_data, open(args.pickle_input_sup, 'wb'))
         p.dump(test_data, open('data/test.p', 'wb'))
@@ -412,7 +417,7 @@ def main():
     if args.load_model is not None:
         model = torch.load(args.load_model)
     else:
-        model = BertForSequenceClassification.from_pretrained('bert-large-uncased', num_labels = num_labels).to(device)
+        model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels = num_labels).to(device)
 
     if args.multi_gpu:
         model = nn.DataParallel(model)
@@ -596,14 +601,14 @@ def main():
                     torch.cuda.empty_cache()
                     torch.cuda.ipc_collect()
                     counter += 1                
-                    if counter > labelled_examples +1 :
-                        counter = 1
+                   # if counter > labelled_examples +1 :
+                   #     counter = 1
                     break
-                else:
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    torch.cuda.ipc_collect()
-                    continue
+               # else:
+                    #gc.collect()
+                    #torch.cuda.empty_cache()
+                    #torch.cuda.ipc_collect()
+                    #continue
             
             ### Accumulation Steps and Gradient steps
             if (step+1) % accumulation_steps == 0:
