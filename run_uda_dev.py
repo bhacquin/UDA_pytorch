@@ -35,7 +35,7 @@ class InputFeatures(object):
 def prepare_unsupervised_data(src, backtrad,max_seq_length=256):
     print('Preparing Unsupervised Data ...')
     unsupervised_data = []
-    tokenizer = BertTokenizer.from_pretrained('bert-large-uncased')
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 #     with open(path_data+'/original/'+filename) as f:
 #             text_original = f.readlines()
 
@@ -54,7 +54,7 @@ def prepare_unsupervised_data(src, backtrad,max_seq_length=256):
 def prepare_unsupervised_data_triplet(src, backtrad,max_seq_length=256):
     print('Preparing triplet data...')
     unsupervised_data = []
-    tokenizer = BertTokenizer.from_pretrained('bert-large-cased') ## TO DO STOP HARDCODING
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased') ## TO DO STOP HARDCODING
 
     assert len(src) == len(backtrad)
     for i in tqdm(range(len(src))):
@@ -324,7 +324,7 @@ def main():
                         type = float,
                         help = " Learning rate applied to the last layer - classifier layer - .")
     parser.add_argument("--lr_model",
-                        default = 2e-5,
+                        default = 1e-6,
                         type = float,
                         help = "Learning rate applied to the whole model bar the classifier layer.")
     parser.add_argument('--verbose',
@@ -338,7 +338,7 @@ def main():
                         type = int, 
                         help = "how many epochs to perform")                  
     parser.add_argument("--labelled_examples",
-                        default = 20,
+                        default = 40,
                         type = int, 
                         help = "how many labelled examples to learn from")
     parser.add_argument("--temperature",
@@ -442,7 +442,7 @@ def main():
 
 
     ### Variables
-    unsup_train_batch_size = args.batch_size * args.unsup_ratio 
+    unsup_train_batch_size = args.batch_size * args.unsup_ratio + 2
     sup_train_batch_size = args.batch_size
     labelled_examples = args.labelled_examples
     unsup_train_sampler = RandomSampler(unsupervised_dataset)
@@ -466,7 +466,7 @@ def main():
         model = torch.load(args.load_model)
 
     else:
-        model = BertForSequenceClassification.from_pretrained('bert-large-uncased', num_labels = num_labels).to(device)
+        model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels = num_labels).to(device)
 
     if args.multi_gpu:
         model = nn.DataParallel(model)
@@ -480,7 +480,7 @@ def main():
     epochs = args.epoch
     accumulation_steps = args.gradient_accumulation
     uda_threshold = args.uda_threshold
-    temperature = args.temperature
+    temperature = args.temperature 
     tsa = True
     verbose = False
 
@@ -500,7 +500,7 @@ def main():
     global_step = 0
     accuracy = 0
     # counter = 1
-    test_counter = 0
+    test_counter = -1
     loss_function = CrossEntropyLoss(reduction = 'none')
     optimizer.zero_grad()
     best = 0
@@ -511,17 +511,19 @@ def main():
         for step, batch in tqdm(enumerate(unsup_train_dataloader)):
             model.train()       
         ### Unsupervised Loss
+            global_step += 1
             batch = tuple(t.to(device) for t in batch)
             if args.triplet_loss:
                 original_input,_,_,augmented_input,_,_,triplet_input,_,_ =batch
                 triplet = True
             else:
+                triplet = False
                 original_input, _, _, augmented_input,_,_ = batch
             ### REGULARISATION LAST LAYER 
             if args.regularisation>0:
                 with torch.no_grad():
                     logits_original = model.module.bert(original_input)[1]
-                    log_probas = F.log_softmax(model.module.classifier(logits_original),dim=-1)
+                    log_probas = F.log_softmax(model.module.classifier(logits_original)/temperature,dim=-1)
                     entropy = -torch.exp(log_probas)*log_probas
                     
                     with train_summary_writer.as_default():
@@ -534,19 +536,19 @@ def main():
                 torch.cuda.ipc_collect()
                 torch.cuda.empty_cache()
                 ## END OF CLEANING
-
                 logits_augmented = model.module.bert(augmented_input)[1]
                 if triplet:
-                    logits_triplet = model.module.bert(triplet_input)
-                    loss_triplet = - MSE(logits_triplet, logits_original) * scale_triplet
+                    logits_triplet = model.module.bert(triplet_input)[1]
+                    #print(logits_triplet,type(logits_triplet))
+                    loss_triplet = - MSE(logits_triplet, logits_original) * 2
                 else :
-                    loss_triplet = torch.tensor([0])
+                    loss_triplet = torch.tensor([0.]).to(device)
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
                 
                 if args.regularisation_only:
-                    loss_unsup_uda = torch.tensor([0])
+                    loss_unsup_uda = torch.tensor([0.]).to(device)
                 else:
-                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented)/temperature, dim=-1)
+                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented), dim=-1)
                     loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
 
                 if uda_threshold > 0:
@@ -564,7 +566,7 @@ def main():
 
                 
                 with train_summary_writer.as_default():
-
+                    tf.summary.scalar('loss_triplet', loss_triplet.item(), step=global_step)
                     tf.summary.scalar('Number of elements unsup', loss_unsup_uda.size(0),global_step)
                     tf.summary.scalar('Loss_Unsup_uda', loss_unsup_uda.mean(-1).item(), step=global_step)
                     tf.summary.scalar('Loss_Unsup_regu', loss_unsup_regu.item(), step=global_step)
@@ -620,7 +622,7 @@ def main():
                 pass
             else:
             ### Supervised Loss
-                print('supervised loss')
+                
                 for i , batch_sup in enumerate(sup_train_dataloader):
                     # if counter % (i+1) == 0 :
                     batch_sup = tuple(t.to(device) for t in batch_sup)
@@ -683,7 +685,7 @@ def main():
                     # counter += 1                
                     # if counter > labelled_examples +1 :
                     #     counter = 1
-                    # break
+                    break
                 else:
                     gc.collect()
                     torch.cuda.empty_cache()
@@ -695,6 +697,7 @@ def main():
                 torch.nn.utils.clip_grad_value_(model.parameters(),args.clip_grad)
                 optimizer.step()
                 optimizer.zero_grad()
+
             if args.pretraining:
                 if (step+1) % 200  == 0:
                     model_to_save = model.module if hasattr(model, 'module') else model
@@ -731,7 +734,7 @@ def main():
                         best = sentiment_test_acc.item()/16
                
             ### Increase the global step tracker
-            global_step += 1
+#            global_step += 1
 
 if __name__ == '__main__':
     main()

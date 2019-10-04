@@ -4,10 +4,10 @@
 #pip install tensorflow
 #git clone https://github.com/bhacquin/pytorch_bert_addons.git
 #pip install pytorch_bert_addons/pytorch-pretrained-BERT/.
-
+pkill tensorboard
 #pip install tensorboardX
 #pwd
 rm -r logs
 mkdir -p logs
 tensorboard --host 0.0.0.0 --logdir=logs  &
-python run_uda.py --sequence_length 256 --multi_gpu  
+python run_uda.py --batch_size 5 --sequence_length 256 --multi_gpu    
