@@ -446,10 +446,10 @@ def main():
         ### Unsupervised Loss
             batch = tuple(t.to(device) for t in batch)
             if args.triplet_loss:
-                original_input,_,_,augmented_input,_,_,triplet_input,_,_ =batch
+                original_input,augmented_input,triplet_input =batch
                 triplet = True
             else:
-                original_input, _, _, augmented_input,_,_ = batch
+                original_input,augmented_input = batch
             
             ### REGULARISATION LAST LAYER 
             if args.regularisation>0:
@@ -475,8 +475,7 @@ def main():
                 loss_triplet = -MSE(last_layer_triplet, last_layer_original) 
                 with train_summary_writer.as_default():
                     tf.summary.scalar('loss_triplet', loss_triplet.item(), step=global_step)
-                else :
-                    loss_triplet = torch.tensor([0.]).to(device)
+
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
                 
                 if args.regularisation_only:
