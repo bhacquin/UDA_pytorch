@@ -10,4 +10,4 @@ pkill tensorboard
 rm -r logs
 mkdir -p logs
 tensorboard --host 0.0.0.0 --logdir=logs  &
-python run_uda.py --batch_size 5 --sequence_length 256 --multi_gpu    
+python run_uda.py --batch_size 5 --sequence_length 256 --multi_gpu  --gradient_accumulation 4  

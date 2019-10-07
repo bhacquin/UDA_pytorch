@@ -320,11 +320,11 @@ def main():
                         type = int, 
                         help = "how many gradients to accumulate before stepping down.")
     parser.add_argument("--lr_classifier",
-                        default = 2e-5,
+                        default = 1e-3,
                         type = float,
                         help = " Learning rate applied to the last layer - classifier layer - .")
     parser.add_argument("--lr_model",
-                        default = 1e-6,
+                        default = 2e-5,
                         type = float,
                         help = "Learning rate applied to the whole model bar the classifier layer.")
     parser.add_argument('--verbose',
@@ -497,14 +497,13 @@ def main():
     #optimizer = BertAdam(optimizer_grouped_parameters)
     optimizer = torch.optim.Adam(optimizer_grouped_parameters)
     # Locally used variables
-    global_step = 0
+    global_step = -1
     accuracy = 0
     # counter = 1
-    test_counter = -1
+    test_counter = 0
     loss_function = CrossEntropyLoss(reduction = 'none')
     optimizer.zero_grad()
     best = 0
-    scale_triplet = 0.01
     MSE = nn.MSELoss(reduction = 'mean')
     ### TRAINING
     for epoch in range(epochs):                      
@@ -536,11 +535,11 @@ def main():
                 torch.cuda.ipc_collect()
                 torch.cuda.empty_cache()
                 ## END OF CLEANING
+
                 logits_augmented = model.module.bert(augmented_input)[1]
                 if triplet:
                     logits_triplet = model.module.bert(triplet_input)[1]
-                    #print(logits_triplet,type(logits_triplet))
-                    loss_triplet = - MSE(logits_triplet, logits_original) * 2
+                    loss_triplet = - MSE(logits_triplet, logits_original) 
                 else :
                     loss_triplet = torch.tensor([0.]).to(device)
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
@@ -686,12 +685,7 @@ def main():
                     # if counter > labelled_examples +1 :
                     #     counter = 1
                     break
-                else:
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    torch.cuda.ipc_collect()
-                    continue
-            
+
             ### Accumulation Steps and Gradient steps
             if (step+1) % accumulation_steps == 0:
                 torch.nn.utils.clip_grad_value_(model.parameters(),args.clip_grad)
