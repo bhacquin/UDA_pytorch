@@ -333,7 +333,7 @@ def main():
                         default = -1,
                         type = float,
                         help = "Set the minimal acceptable max probability for unsupervised data")
-    parser.add_argument("--tsa",
+    parser.add_argument("--tsa_method",
                         default = 'linear',
                         type = str,
                         help = "Set the method to perform threshold annealing on supervised data")
