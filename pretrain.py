@@ -48,7 +48,7 @@ def prepare_unsupervised_data(src, backtrad,max_seq_length=256):
                                                    output_mode="UDA")
         unsupervised_data.append(instance)
     print('Unsupervised Data prepared !')
-    return unsupervised_data
+    return list(np.array(unsupervised_data).reshape(-1))
 
 
 def prepare_unsupervised_data_triplet(src, backtrad,max_seq_length=256):
@@ -65,7 +65,7 @@ def prepare_unsupervised_data_triplet(src, backtrad,max_seq_length=256):
                                                    output_mode="UDA")
         unsupervised_data.append(instance)
     print('Unsupervised Data prepared !')
-    return unsupervised_data
+    return list(np.array(unsupervised_data).reshape(-1))
 
 def convert_examplesUDA_to_features(examples, max_seq_length,
                                  tokenizer, output_mode,label_list = None):
@@ -150,77 +150,6 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
                         label_id=label_id))
     return features
 
-
-### Prepare Labelled Data
-
-def prepare_supervised_data(src,max_seq_length=256):
-    print('Preparing supervised data...')
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-#     with open(path_data+'/original/'+filename) as f:
-#             text_original = f.readlines()
-
-#     with open(path_data+'/Translated/'+filename) as f:
-#         text_translated = f.readlines()
-
-    
-    
-    supervised_data = convertLABEL_examples_to_features(list(src['content']),list(src['label']), max_seq_length=max_seq_length, tokenizer=tokenizer,
-                                                   output_mode="classification")
-    print('Supervised Data prepared !')
-    return np.array(supervised_data)
-
-
-
-def convertLABEL_examples_to_features(examples, label_list, max_seq_length,
-                                 tokenizer, output_mode):
-    """Loads a data file into a list of `InputBatch`s."""
-
-    #   label_map = {label : i for i, label in enumerate(label_list)}
-
-    features = []
-    for (ex_index, example) in tqdm(enumerate(examples)):
-
-
-        
-        tokens_a = tokenizer.tokenize(example)
-        
-        
-        if len(tokens_a) > max_seq_length - 2:
-            tokens_a = tokens_a[:(max_seq_length - 2)]
-
-        tokens = ["[CLS]"] + tokens_a + ["[SEP]"]
-        segment_ids = [0] * len(tokens)
-
-
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        
-        # The mask has 1 for real tokens and 0 for padding tokens. Only real
-        # tokens are attended to.
-        input_mask = [1] * len(input_ids)
-
-        # Zero-pad up to the sequence length.
-        padding = [0] * (max_seq_length - len(input_ids))
-        input_ids += padding
-        input_mask += padding
-        segment_ids += padding
-
-        assert len(input_ids) == max_seq_length
-        assert len(input_mask) == max_seq_length
-        assert len(segment_ids) == max_seq_length
-
-        if output_mode == "classification":
-            label_id = label_list[ex_index]
-        elif output_mode == "regression":
-            label_id = float(label_list[ex_index])
-        else:
-            raise KeyError(output_mode)
-
-
-        features.append(InputFeatures(input_ids=input_ids,
-                            input_mask=input_mask,
-                            segment_ids=segment_ids,
-                            label_id=label_id))
-    return features
 
 
 ### Functions
