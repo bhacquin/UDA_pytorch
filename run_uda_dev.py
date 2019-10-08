@@ -505,7 +505,7 @@ def main():
     loss_function = CrossEntropyLoss(reduction = 'none')
     optimizer.zero_grad()
     best = 0
-    scale_triplet = 0.01
+    
     MSE = nn.MSELoss(reduction = 'mean')
     ### TRAINING
     for epoch in range(epochs):                      
@@ -543,11 +543,11 @@ def main():
                     with train_summary_writer.as_default():
                         tf.summary.scalar('loss_triplet', loss_triplet.item(), step=global_step)
                 else :
-                    loss_triplet = torch.tensor([0])
+                    loss_triplet = torch.tensor([0.]).to(device)
                 loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
                 
                 if args.regularisation_only:
-                    loss_unsup_uda = torch.tensor([0])
+                    loss_unsup_uda = torch.tensor([0.]).to(device)
                 else:
                     log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented), dim=-1)
                     loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
@@ -623,7 +623,7 @@ def main():
                 pass
             else:
             ### Supervised Loss
-                print('supervised loss')
+                
                 for i , batch_sup in enumerate(sup_train_dataloader):
                     # if counter % (i+1) == 0 :
                     batch_sup = tuple(t.to(device) for t in batch_sup)

@@ -352,9 +352,9 @@ def main():
 
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+        {'params': [p for n, p in param_classifier_optimizer if not any(nd in n for nd in no_decay)],
         'weight_decay': 0., 'lr' : lr_bert,'max_grad_norm':1},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.01, 'lr' : lr_bert, 'max_grad_norm':1},
+        {'params': [p for n, p in param_classifier_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.01, 'lr' : lr_bert, 'max_grad_norm':1},
         {'params' :param_body_optimizer , 'weight_decay' : 0.01, 'lr' : lr_bert,'max_grad_norm':1}
         ]
     #optimizer = BertAdam(optimizer_grouped_parameters)
@@ -405,12 +405,12 @@ def main():
                 with train_summary_writer.as_default():
                     tf.summary.scalar('loss_triplet', loss_triplet.item(), step=global_step)
 
-                loss_unsup_regu = MSE(logits_augmented, logits_original) * args.regularisation
+                loss_unsup_regu = MSE(last_layer_augmented, last_layer_original) * args.regularisation
                 
                 if args.regularisation_only:
                     loss_unsup_uda = torch.tensor([0.]).to(device)
                 else:
-                    log_probas_augmented = F.log_softmax(model.module.classifier(logits_augmented), dim=-1)
+                    log_probas_augmented = F.log_softmax(model.module.classifier(last_layer_augmented), dim=-1)
                     loss_unsup_uda = kl_for_log_probs(log_probas,log_probas_augmented)
 
                 if uda_threshold > 0:
