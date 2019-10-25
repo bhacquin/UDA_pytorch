@@ -123,7 +123,7 @@ def convert_examplesUDA_to_features(examples, max_seq_length,
 
 def prepare_supervised_data(src,max_seq_length=256):
     print('Preparing supervised data...')
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = BertTokenizer.from_pretrained('bert-large-uncased')
 #     with open(path_data+'/original/'+filename) as f:
 #             text_original = f.readlines()
 
